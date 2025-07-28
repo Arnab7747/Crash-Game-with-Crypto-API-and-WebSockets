@@ -3,7 +3,7 @@ const Transaction = require('../models/Transaction');
 const getCryptoPrice = require('../services/cryptoPrice');
 const generateMockHash = require('../utils/generateHash');
 
-// 📌 Get wallet balance
+//  Get wallet balance
 exports.getBalance = async (req, res) => {
   try {
     const player = await Player.findById(req.params.playerId);
@@ -27,7 +27,7 @@ exports.getBalance = async (req, res) => {
   }
 };
 
-// 📌 Place a bet (USD → crypto conversion)
+//  Place a bet (USD → crypto conversion)
 exports.placeBet = async (req, res) => {
   try {
     const { playerId, usdAmount, currency } = req.body;

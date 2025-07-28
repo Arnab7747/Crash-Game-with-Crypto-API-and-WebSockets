@@ -1,13 +1,13 @@
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const GameRound = require('../models/GameRound');
 const Player = require('../models/player');
 const getCryptoPrice = require('../services/cryptoPrice');
-const generateCrashPoint = require('../services/crashAlgorithm');
+const generateCrashPoint = require('../services/crashAlgorithm'); // Update this to take full hash
 const generateMockHash = require('../utils/generateHash');
 
 module.exports = (io) => {
   let currentRound = null;
-  let seed = 'provablyfair_seed_123'; // Replace with dynamic hash in production
   let multiplier = 1.0;
   let startTime;
   let interval;
@@ -16,11 +16,21 @@ module.exports = (io) => {
   const startNewRound = async () => {
     const roundId = uuidv4();
     const roundNumber = Date.now();
-    const crashPoint = parseFloat(generateCrashPoint(seed, roundNumber));
+
+    // 🔐Generate server seed and hash
+    const serverSeed = crypto.randomBytes(32).toString('hex');
+    const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+
+    //  Use serverSeed + roundNumber to generate crash point
+    const combinedSeed = `${serverSeed}-${roundNumber}`;
+    const crashPoint = parseFloat(generateCrashPoint(combinedSeed)); // Adjust this function to accept seed string
 
     currentRound = new GameRound({
       roundId,
       crashPoint,
+      serverSeedHash,
+      serverSeed, // Optionally hide this from public access until round end
+      roundNumber,
       startTime: new Date(),
       bets: []
     });
@@ -31,9 +41,14 @@ module.exports = (io) => {
     roundActive = true;
     startTime = Date.now();
 
-    io.emit('roundStart', { roundId, crashPointHash: crashPoint });
+    //  Emit hashed seed for verification later
+    io.emit('roundStart', {
+      roundId,
+      crashPointHash: serverSeedHash,
+      roundNumber
+    });
 
-    // Start multiplier loop
+    //  Multiplier increases loop
     interval = setInterval(async () => {
       const elapsed = (Date.now() - startTime) / 1000;
       multiplier = (1 + elapsed * 0.05).toFixed(2); // simple growth factor
@@ -53,16 +68,20 @@ module.exports = (io) => {
     currentRound.endTime = new Date();
     await currentRound.save();
 
-    io.emit('roundCrash', { crashPoint: currentRound.crashPoint });
+    //  Reveal actual seed so players can verify
+    io.emit('roundCrash', {
+      crashPoint: currentRound.crashPoint,
+      serverSeed: currentRound.serverSeed,
+      roundNumber: currentRound.roundNumber
+    });
 
-    // Start next round after 10s
+    // Wait 10 seconds before new round
     setTimeout(() => startNewRound(), 10000);
   };
 
   io.on('connection', (socket) => {
     console.log('A player connected:', socket.id);
 
-    // Player places a bet (simulated)
     socket.on('placeBet', async ({ playerId, usdAmount, currency }) => {
       if (!roundActive || !currentRound) return;
 
@@ -74,11 +93,9 @@ module.exports = (io) => {
         return socket.emit('error', 'Insufficient balance');
       }
 
-      // Deduct crypto
       player.wallet[currency] -= cryptoAmount;
       await player.save();
 
-      // Save bet to round
       currentRound.bets.push({
         playerId,
         usdAmount,
@@ -91,7 +108,6 @@ module.exports = (io) => {
       socket.emit('betConfirmed', { cryptoAmount, multiplier });
     });
 
-    // Cashout request
     socket.on('cashout', async ({ playerId }) => {
       if (!roundActive || !currentRound) return;
 
@@ -127,6 +143,6 @@ module.exports = (io) => {
     });
   });
 
-  // Kickstart the game
+  //  Start first round
   startNewRound();
 };

@@ -4,7 +4,7 @@ const Transaction = require('../models/Transaction');
 const getCryptoPrice = require('../services/cryptoPrice');
 const generateMockHash = require('../utils/generateHash');
 
-// 📌 Cash out
+
 exports.cashOut = async (req, res) => {
   try {
     const { playerId, roundId, multiplier } = req.body;
